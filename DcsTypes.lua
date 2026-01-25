@@ -42,7 +42,7 @@ do -- env
     ---@class env
     ---@field mission table TODO: Mission
     ---@field info fun(log:string, showMessageBox:boolean?) Prints passed log line with prefix 'info'
-    ---@field warning fun(log:string, showMessageBox:boolean?) Prints passed log line with prefix 'warning'
+    ---@field warn fun(log:string, showMessageBox:boolean?) Prints passed log line with prefix 'warning'
     ---@field error fun(log:string, showMessageBox:boolean?) Prints passed log line with prefix 'error'
     ---@field setErrorMessageBoxEnabled fun(toggle:boolean?) Enables or disables the lua error box to show up on a lua error
     ---@field getValueDictByKey fun(value:string) : string Returns a string associated with the passed dictionary key value.
@@ -96,12 +96,12 @@ do -- atmosphere
 end
 
 do -- world
-    ---@class Event
+    ---@class Event : table
     ---@field id world.event
     ---@field time number
 
     ---@class EventHandler
-    ---@field onEvent fun(event: Event)
+    ---@field onEvent fun(self: EventHandler,event: Event)
 
     ---@class world
     ---@field addEventHandler fun(handler: EventHandler) Adds an event handler that will be called on DCS events.

@@ -1,4 +1,4 @@
-local version  = "{{version}}"
+local version = "{{version}}"
 
 --=========================================
 
@@ -7,7 +7,6 @@ local version  = "{{version}}"
 -- This is due to a player slot or a client slot that has the same userID (when run from the game itself) the unit commands on the host don't work.
 
 --=========================================
-
 
 --============================================
 -- Config
@@ -24,13 +23,10 @@ local Config = {
     -- RTB (If last waypoint in route is "Land" it will land there)
     -- Done on a unit basis
     PlayersOnly = false,
-    
+
     -- Mad Dog behaviour of AA missiles
     -- CURRENTLY NOT IMPLEMENTED
-    MadDog = {
-        Behaviour = 0 --DEFAULT: 0
-    },
-    DeadUnitWeapons = { -- Behaviour of weapons when launched by a dead unit
+    DeadUnitWeapons = {         -- Behaviour of weapons when launched by a dead unit
         AAWeaponsBehaviour = 0, --DEFAULT: 0
         AGWeaponsBehaviour = 0  --DEFAULT: 0
     },
@@ -46,8 +42,8 @@ local Config = {
         --- replaceable variables:
         --- {{ callsign }} => replaces with the callsign (delimited first part)
 
-        --- If you want to disable a message, simply replace the string with nil 
-        --- example: 
+        --- If you want to disable a message, simply replace the string with nil
+        --- example:
         ---  UnitKilled = nil
         PlayerMessages = {
             UnitKilled = "{{ callsign }}, You are dead, flow away from the action",
@@ -59,9 +55,9 @@ local Config = {
         },
         --- Messages that are sent to the server for LotATC, Olympus and other tool users.
         ControllerMessages = {
-            UnitKilled = "{{ callsign }}, dead", -- callsign of the unit that died
-            MissileMissed = "{{ callsign }} , PK MISS", -- callsign of the unit that missed 
-            ConfirmKill = "{{ callsign }}, PK HIT", -- callsign of the unit whos missile hit
+            UnitKilled = "{{ callsign }}, dead",            -- callsign of the unit that died
+            MissileMissed = "{{ callsign }} , PK MISS",     -- callsign of the unit that missed
+            ConfirmKill = "{{ callsign }}, PK HIT",         -- callsign of the unit whos missile hit
             ConfirmKillGunKill = "{{ callsign }}, GUN KILL" -- callsign of the shooter
         }
     },
@@ -80,12 +76,12 @@ local Config = {
 
         --After landing, if an aircraft is still on the ground 30 seconds after landing. (No Touch and goes)
         Landing = true,
-        
+
         -- Respawn zones need to start with "REVIVE_" so "REVIVE_<zoneName>"
         InRespawnZone = true,
     },
     AutoInvulnerableSettings = {
-        -- Automatically manages invulnerablity. 
+        -- Automatically manages invulnerablity.
         Enabled = true,
 
         -- Players only
@@ -98,13 +94,13 @@ local Config = {
         -- Invulnerable when inside trigger zones starting with name "invulnerablezone_"
         -- (Doesn't really do anything if OutsideVulnerableZone is set to true as well)
         InsideInvulnerablezone = true,
-        
-        -- Detects whether or not a unit has hit the ground or scenery object when invulnerable. 
-        -- If a unit indeed hit the ground in an "excessive way" it will explode 
+
+        -- Detects whether or not a unit has hit the ground or scenery object when invulnerable.
+        -- If a unit indeed hit the ground in an "excessive way" it will explode
         GroundCollisionDetection = true,
         ObjectCollisionDetection = true
     },
-    DebugLog = false,
+    DebugLog = true,
     DebugOutText = false,
 }
 
@@ -120,18 +116,204 @@ TODO: MadDogged missiles.
 TODO: Destroyed missiles
 
 CrashManager:
-TODO: Over G ? 
+TODO: Over G ?
 
-BombTracker: 
+BombTracker:
 
-TODO: Practice Bombs 
+TODO: Practice Bombs
 (This might better help with "unlimited weapons" options)
 
-]]--
+]] --
 
 --============================================
 -- Script starts here
 --============================================
+
+local RedFlag = {}
+
+do ---Config Class Definitions
+
+    ---@class RedFlagConfig
+    ---@field CallSignDelimiter string
+    ---@field PlayersOnly boolean
+    ---@field DeadUnitWeapons DeadUnitWeapons
+    ---@field Delays Delays
+    ---@field Messages Messages
+    ---@field LotAtcConfiguration LotAtcConfiguration
+    ---@field KillParameters KillParameters
+    ---@field Revive Revive
+    ---@field AutoInvulnerableSettings AutoInvulnerableSettings
+    ---@field DebugLog boolean
+    ---@field DebugOutText boolean
+
+
+    ---@class DeadUnitWeapons
+    ---@field AAWeaponsBehaviour integer
+    ---@field AGWeaponsBehaviour integer
+
+    ---@class Delays
+    ---@field MissDelay number
+    ---@field MissileKillDelay number
+    ---@field GunKillDelay number
+    ---@field MissMessageOnScreen number
+    ---@field DeathMessageOnScreenSeconds number
+
+    ---@class Messages
+    ---@field PlayerMessages PlayerMessages
+    ---@field ControllerMessages ControllerMessages
+
+    ---@class PlayerMessages
+    ---@field ConfirmKill string
+    ---@field ConfirmKillGunKill string
+    ---@field MissileMissed string
+    ---@field UnitKilled string
+    ---@field CopyShotMessage string
+    ---@field ReviveMessage string
+
+    ---@class ControllerMessages
+    ---@field ConfirmKill string
+    ---@field MissileMissed string
+    ---@field UnitKilled string
+    ---@field ConfirmKillGunKill string
+
+    ---@class KillParameters
+    ---@field Bullets integer
+    ---@field Missiles integer
+    ---@field GunKillOnlyRearAspect boolean
+
+    ---@class Revive
+    ---@field TankerConnect boolean
+    ---@field Landing boolean
+    ---@field InRespawnZone boolean
+
+    ---@class AutoInvulnerableSettings
+    ---@field Enabled boolean
+    ---@field PlayersOnly boolean
+    ---@field OutsideVulnerableZone boolean
+    ---@field InsideInvulnerablezone boolean
+    ---@field GroundCollisionDetection boolean
+    ---@field ObjectCollisionDetection boolean
+
+
+
+    ---@return RedFlagConfig
+    function RedFlag.getConfig()
+
+        ---@type RedFlagConfig
+        local default = {
+            CallSignDelimiter = "|",
+            PlayersOnly = false,
+            DeadUnitWeapons = {
+                AAWeaponsBehaviour = 0,
+                AGWeaponsBehaviour = 0
+            },
+            Delays = {
+                MissDelay = 5,
+                MissileKillDelay = 3,
+                GunKillDelay = 0,
+                MissMessageOnScreen = 5,
+                DeathMessageOnScreenSeconds = 120
+            },
+            Messages = {
+                PlayerMessages = {
+                    UnitKilled = "{{ callsign }}, You are dead, flow away from the action",
+                    MissileMissed = "{{ callsign }}, PK Miss",
+                    ConfirmKill = "{{ callsign }}, PK Hit",
+                    ConfirmKillGunKill = "{{ callsign }}, good guns, splash one",
+                    CopyShotMessage = "{{ callsign }}, Copy Shot",
+                    ReviveMessage = "{{ callsign }}, you have been reset and are cleared to enter the action"
+                },
+                ControllerMessages = {
+                    UnitKilled = "{{ callsign }}, dead",
+                    MissileMissed = "{{ callsign }} , PK MISS",
+                    ConfirmKill = "{{ callsign }}, PK HIT",
+                    ConfirmKillGunKill = "{{ callsign }}, GUN KILL"
+                }
+            },
+            LotAtcConfiguration = {
+                Enabled = true,
+                SelfCoalition = {
+                    states = {
+                        ["dead"] = "neutral",
+                        ["revived"] = "friend"
+                    }
+                },
+                OtherCoalition = {
+                    states = {
+                        ["dead"] = "neutral_unknown",
+                        ["revived"] = "hostile"
+                    }
+                }
+            },
+            KillParameters = {
+                Bullets = 8,
+                Missiles = 1,
+                GunKillOnlyRearAspect = true
+            },
+            Revive = {
+                TankerConnect = true,
+                Landing = true,
+                InRespawnZone = true,
+            },
+            AutoInvulnerableSettings = {
+                Enabled = true,
+                PlayersOnly = false,
+                OutsideVulnerableZone = true,
+                InsideInvulnerablezone = true,
+                GroundCollisionDetection = true,
+                ObjectCollisionDetection = true
+            },
+            DebugLog = false,
+            DebugOutText = false
+        }
+
+        local function fillRecursive(context, key, value)
+            if context == nil then
+                return
+            end
+
+            if type(value) == "table" then
+                for sub_key, sub_value in pairs(value) do
+                    local nextContext = context
+                    if key ~= nil then
+                        nextContext = context[key]
+                    end
+                    fillRecursive(nextContext, sub_key, sub_value)
+                end
+            else
+                if key == nil then
+                    return
+                end
+                context[key] = value
+            end
+        end
+
+        fillRecursive(default, nil, Config)
+        return default
+    end
+
+    ---@param part string dot seperated string
+    ---@return table?
+    function RedFlag.getConfigPart(part)
+
+        local parts = {}
+        for key in string.gmatch(part, "[^%.]+") do
+            table.insert(parts, key)
+        end
+
+        local config = RedFlag.getConfig()
+
+        local current = config
+        for _, key in ipairs(parts) do
+            current = current[key]
+            if current == nil then
+                return nil
+            end
+        end
+        return current
+    end
+
+end
 
 
 local isSinglePlayer = false
@@ -141,7 +323,6 @@ end
 
 local Util = {}
 do
-
     function Util.split_string(input, separator)
         if separator == nil then
             separator = " "
@@ -179,7 +360,6 @@ do
     ---@param ignoreCase boolean?
     ---@return boolean
     function Util.startsWith(str, findable, ignoreCase)
-
         if ignoreCase == true then
             return string.lower(str):find('^' .. string.lower(findable)) ~= nil
         end
@@ -192,7 +372,6 @@ do
     function Util.roundNumber(number)
         return string.format("%.2f", number)
     end
-
 end
 
 local Log = {}
@@ -213,8 +392,8 @@ do
         if Config.DebugLog == false then
             return
         end
-        env.info("[DEBUG][TDCS Red Flag] " .. (string or "nil"))
-    end 
+        env.info("[TDCS Red Flag][DEBUG] " .. (string or "nil"))
+    end
 
     Log.debugOutText = function(string, time)
         if Config.DebugOutText == true then
@@ -277,8 +456,8 @@ do
     ---comment
     ---@param a Vec3
     ---@param b Vec3
-    Helpers.vecAdd = function (a, b)
-        return {x=a.x+b.x, y=a.y+b.y, z=a.z+b.z}
+    Helpers.vecAdd = function(a, b)
+        return { x = a.x + b.x, y = a.y + b.y, z = a.z + b.z }
     end
 
     Helpers.normVec = function(vec)
@@ -298,7 +477,6 @@ do
     ---@param acc Vec3 JetAcceleration
     ---@return boolean
     Helpers.vecCollision = function(posA, speedA, posB, speedB, acc)
-        
         ---@param bulletX number bullet position
         ---@param jetX number jet position
         ---@param bulletV number
@@ -306,9 +484,7 @@ do
         ---@param jetA number
         ---@return number, number
         local dimensionCollision = function(bulletX, jetX, bulletV, jetV, jetA)
-            
             local closestToZero = function(a, b)
-
                 if a == b then
                     if a > 0 then return a end
                     return b
@@ -317,15 +493,14 @@ do
                 if math.abs(b) < math.abs(a) then return b end
                 return 0
             end
-            
-            local SolveAccelerated = function(a, b, c, d, e)
 
+            local SolveAccelerated = function(a, b, c, d, e)
                 -- local a = bulletX
                 -- local b = bulletV
                 -- local c = jetX
                 -- local d = jetV
                 -- local e = jetA
-                local underRoot = math.pow((2 * d -2 * b),2) - 4 * e * (2 * c - 2 * a)
+                local underRoot = math.pow((2 * d - 2 * b), 2) - 4 * e * (2 * c - 2 * a)
 
                 local first = (-2 * d + 2 * b + math.sqrt(underRoot)) / (2 * e)
                 local second = (-2 * d + 2 * b - math.sqrt(underRoot)) / (2 * e)
@@ -341,7 +516,7 @@ do
             local maxx2 = jetX + 20
 
             if jetA == 0 then
-                Log.debugOutText("Solving linear",1)
+                Log.debugOutText("Solving linear", 1)
                 local xA = (maxx2 - minx1) / (bulletV - jetV)
                 local xB = (minx2 - maxx1) / (bulletV - jetV)
 
@@ -352,21 +527,20 @@ do
             end
 
             local xA = SolveAccelerated(minx1, bulletV, maxx2, jetV, jetA)
-            local xB = SolveAccelerated(maxx1, bulletV, minx2,  jetV, jetA)
-            
+            local xB = SolveAccelerated(maxx1, bulletV, minx2, jetV, jetA)
+
             local minTime = math.min(xA, xB)
             local maxTime = math.max(xA, xB)
             return minTime, maxTime
-
         end
 
         local xTimeMin, xTimeMax = dimensionCollision(posA.x, posB.x, speedA.x, speedB.x, acc.x)
         local yTimeMin, yTimeMax = dimensionCollision(posA.y, posB.y, speedA.y, speedB.y, acc.y)
         local zTimeMin, zTimeMax = dimensionCollision(posA.z, posB.z, speedA.z, speedB.z, acc.z)
 
-        Log.debugOutText("[" .. Util.roundNumber(xTimeMin) .. ",".. Util.roundNumber(xTimeMax) .. "]" ..
-                "[" .. Util.roundNumber(yTimeMin) .. ",".. Util.roundNumber(yTimeMax) .. "]" ..
-            "[" .. Util.roundNumber(zTimeMin) .. ",".. Util.roundNumber(zTimeMax) .. "]", 1)
+        Log.debugOutText("[" .. Util.roundNumber(xTimeMin) .. "," .. Util.roundNumber(xTimeMax) .. "]" ..
+            "[" .. Util.roundNumber(yTimeMin) .. "," .. Util.roundNumber(yTimeMax) .. "]" ..
+            "[" .. Util.roundNumber(zTimeMin) .. "," .. Util.roundNumber(zTimeMax) .. "]", 1)
 
         return
             (xTimeMin <= yTimeMax and yTimeMin <= xTimeMax)
@@ -498,73 +672,73 @@ do
                             ["action"] = "Turning Point",
                             ["alt_type"] = "BARO",
                             ["speed"] = 220.97222222222,
-                            ["task"] = 
+                            ["task"] =
                             {
                                 ["id"] = "ComboTask",
-                                ["params"] = 
+                                ["params"] =
                                 {
-                                    ["tasks"] = 
+                                    ["tasks"] =
                                     {
-                                        [1] = 
+                                        [1] =
                                         {
                                             ["enabled"] = true,
                                             ["auto"] = false,
                                             ["id"] = "WrappedAction",
                                             ["number"] = 1,
-                                            ["params"] = 
+                                            ["params"] =
                                             {
-                                                ["action"] = 
+                                                ["action"] =
                                                 {
                                                     ["id"] = "Option",
-                                                    ["params"] = 
+                                                    ["params"] =
                                                     {
                                                         ["value"] = 4,
                                                         ["name"] = 0,
                                                     }, -- end of ["params"]
-                                                }, -- end of ["action"]
-                                            }, -- end of ["params"]
-                                        }, -- end of [1]
-                                        [2] = 
+                                                },     -- end of ["action"]
+                                            },         -- end of ["params"]
+                                        },             -- end of [1]
+                                        [2] =
                                         {
                                             ["enabled"] = true,
                                             ["auto"] = false,
                                             ["id"] = "WrappedAction",
                                             ["number"] = 2,
-                                            ["params"] = 
+                                            ["params"] =
                                             {
-                                                ["action"] = 
+                                                ["action"] =
                                                 {
                                                     ["id"] = "Option",
-                                                    ["params"] = 
+                                                    ["params"] =
                                                     {
                                                         ["value"] = 0,
                                                         ["name"] = 3,
                                                     }, -- end of ["params"]
-                                                }, -- end of ["action"]
-                                            }, -- end of ["params"]
-                                        }, -- end of [2]
-                                        [3] = 
+                                                },     -- end of ["action"]
+                                            },         -- end of ["params"]
+                                        },             -- end of [2]
+                                        [3] =
                                         {
                                             ["enabled"] = true,
                                             ["auto"] = false,
                                             ["id"] = "WrappedAction",
                                             ["number"] = 3,
-                                            ["params"] = 
+                                            ["params"] =
                                             {
-                                                ["action"] = 
+                                                ["action"] =
                                                 {
                                                     ["id"] = "Option",
-                                                    ["params"] = 
+                                                    ["params"] =
                                                     {
                                                         ["value"] = 0,
                                                         ["name"] = 1,
                                                     }, -- end of ["params"]
-                                                }, -- end of ["action"]
-                                            }, -- end of ["params"]
-                                        }, -- end of [3]
-                                    }, -- end of ["tasks"]
-                                }, -- end of ["params"]
-                            }, -- end of ["task"]
+                                                },     -- end of ["action"]
+                                            },         -- end of ["params"]
+                                        },             -- end of [3]
+                                    },                 -- end of ["tasks"]
+                                },                     -- end of ["params"]
+                            },                         -- end of ["task"]
                             ["type"] = "Turning Point",
                             ["ETA"] = 419.83667467719,
                             ["ETA_locked"] = false,
@@ -602,7 +776,6 @@ do
         con:setTask(task)
 
         Log.info("Sending Unit RTB: " .. unit:getName())
-
     end
 end
 
@@ -610,7 +783,6 @@ end
 ---@field private config NotificationConfig
 local Notifier = {}
 do
-
     ---@class NotificationConfig
     ---@field CallsignDelimiter string
 
@@ -657,13 +829,11 @@ do
             local message = self:Format(Config.Messages.PlayerMessages.MissileMissed, "callsign", friendlyName)
             trigger.action.outTextForUnit(shooter:getID(), message, Config.Delays.MissMessageOnScreen)
         end
-
     end
 
     ---@param shooter table
     ---@param delaySeconds number
     function Notifier:NotifyMissedDelayed(shooter, delaySeconds)
-        
         local notify = function(input, time)
             input.notifier:NotifyMissed(input.shooter)
             return nil
@@ -682,7 +852,7 @@ do
 
         if Config.Messages.ControllerMessages.UnitKilled ~= nil then
             local controllerMessage = self:Format(Config.Messages.ControllerMessages.UnitKilled, "callsign", friendlyName)
-            net.send_chat(controllerMessage, true)            
+            net.send_chat(controllerMessage, true)
         end
 
         if target.getID and Config.Messages.PlayerMessages.UnitKilled ~= nil then
@@ -697,11 +867,10 @@ do
         local friendlyName = self:NameToCallSign(name)
 
         if Config.Messages.ControllerMessages.ConfirmKill ~= nil then
-            
             local message = self:Format(Config.Messages.ControllerMessages.ConfirmKill, "callsign", friendlyName)
             net.send_chat(message, true)
         end
-        
+
         if Config.Messages.PlayerMessages.ConfirmKill ~= nil then
             local message = self:Format(Config.Messages.PlayerMessages.ConfirmKill, "callsign", friendlyName)
             trigger.action.outTextForUnit(shooter:getID(), message, 5)
@@ -711,7 +880,6 @@ do
     ---@param shooter table
     ---@param delaySeconds number
     function Notifier:NotifyKillDelayed(shooter, delaySeconds)
-
         if delaySeconds <= 1 then
             self:NotifyKill(shooter)
         else
@@ -719,8 +887,8 @@ do
                 input.notifier:NotifyKill(input.shooter)
                 return nil
             end
-    
-            timer.scheduleFunction(notify, { notifier = self, shooter = shooter } , timer.getTime() + delaySeconds)
+
+            timer.scheduleFunction(notify, { notifier = self, shooter = shooter }, timer.getTime() + delaySeconds)
         end
     end
 
@@ -738,7 +906,6 @@ do
             local message = self:Format(Config.Messages.PlayerMessages.ConfirmKillGunKill, "callsign", friendlyName)
             trigger.action.outTextForUnit(shooter:getID(), message, 8)
         end
-
     end
 
     ---@param shooter table
@@ -758,7 +925,7 @@ do
 
     ---@param shooter table
     function Notifier:CopyShot(shooter)
-        if Config.Messages.PlayerMessages.CopyShotMessage ~= nil then 
+        if Config.Messages.PlayerMessages.CopyShotMessage ~= nil then
             local name = shooter:getPlayerName() or shooter:getCallsign()
             local friendlyName = self:NameToCallSign(name)
             local message = self:Format(Config.Messages.PlayerMessages.CopyShotMessage, "callsign", friendlyName)
@@ -769,7 +936,6 @@ do
     ---@param shooter table
     ---@param delaySeconds number
     function Notifier:CopyShotDelayed(shooter, delaySeconds)
-
         local notify = function(input, time)
             input.notifier:CopyShot(input.shooter)
             return nil
@@ -784,9 +950,8 @@ do
         local friendlyName = self:NameToCallSign(name)
         trigger.action.outTextForUnit(shooter:getID(), friendlyName .. " " .. "Shot scrapped", 5)
     end
-    
-    function Notifier:NotifyRevived(unit)
 
+    function Notifier:NotifyRevived(unit)
         if Config.Messages.PlayerMessages.ReviveMessage == nil then
             return
         end
@@ -810,6 +975,211 @@ do
     end
 end
 
+
+---@class LotAtcConnector
+---@field private LotAtcConfiguration LotAtcConfiguration
+local LotAtcConnector = {}
+LotAtcConnector.__index = LotAtcConnector
+
+do
+
+    ---@enum StateClassification
+    local StateClassification = {
+        None = nil,
+        Alive = "alive",
+        Dead = "dead",
+        Revived = "revived"
+    }
+
+    ---@enum LotAtcClassification
+    local lotAtcClassification = {
+        None          = nil,
+        Friend        = "friend",
+        AssumedFriend = "assumed_friend",
+        Hostile       = "hostile",
+        Suspect       = "suspect",
+        Neutral       = "neutral",
+        NeutralUnknown = "neutral_unknown"
+    }
+
+    ---@class CoalitionClassification
+    ---@field states table<StateClassification, LotAtcClassification>
+
+    ---@class LotAtcConfiguration
+    ---@field public Enabled boolean
+    ---@field public SelfCoalition CoalitionClassification
+    ---@field public OtherCoalition CoalitionClassification
+
+
+    do
+        ---comment
+        ---@param LotAtcConfiguration LotAtcConfiguration
+        ---@return LotAtcConnector
+        function LotAtcConnector.New(LotAtcConfiguration)
+            local self = setmetatable({}, LotAtcConnector)
+
+            self.LotAtcConfiguration = LotAtcConfiguration
+
+            return self
+        end
+
+        ---@param unit Unit
+        function LotAtcConnector:markUnitDead(unit)
+
+            if self.LotAtcConfiguration.Enabled == false then
+                return
+            end
+
+            if not lotatcLink then 
+                Log.info("Skipping LotATC, no link enabled on the server")
+                return
+            end
+
+            do -- own side
+
+                local config = self.LotAtcConfiguration.SelfCoalition
+
+                local unitName = unit:getName()
+                local controllerCoalition = "blue"
+                if unit:getCoalition() == coalition.side.RED then
+                    controllerCoalition = "red"
+                end
+
+                ---@type LotAtcClassification
+                local deadClassification = lotAtcClassification.Neutral
+                if config and config.states and config.states[StateClassification.Dead] then
+                    Log.debug("Using dead classification: " .. config.states[StateClassification.Dead])
+                    deadClassification = config.states[StateClassification.Dead]
+                end
+
+                if unitName and controllerCoalition and deadClassification then
+                    -- the two empty string at the end are to keep it unchanged
+
+                    Log.info("Setting LotATC: " .. controllerCoalition .. " " .. unitName .. " " .. deadClassification)
+                    lotatcLink.setClassification(controllerCoalition, unitName, deadClassification, "air", '')
+                end
+            end
+
+            do -- other side
+
+                local config = self.LotAtcConfiguration.OtherCoalition
+
+                local unitName = unit:getName()
+                local controllerCoalition = "red"
+                if unit:getCoalition() == coalition.side.RED then
+                    controllerCoalition = "blue"
+                end
+
+                ---@type LotAtcClassification
+                local deadClassification = lotAtcClassification.NeutralUnknown
+                if config and config.states and config.states[StateClassification.Dead] then
+                    Log.debug("Using dead classification: " .. config.states[StateClassification.Dead])
+                    deadClassification = config.states[StateClassification.Dead]
+                end
+
+                if unitName and controllerCoalition and deadClassification then
+
+                    local class = deadClassification
+                    local subclass = ''
+                    if deadClassification == lotAtcClassification.NeutralUnknown then
+                        class = "neutral"
+                        subclass = 'unknown'
+                    end
+
+                    -- the two empty string at the end are to keep it unchanged
+                    Log.info("Setting LotATC: " .. controllerCoalition .. " " .. unitName .. " " .. class)
+                    lotatcLink.setClassification(controllerCoalition, unitName, class, subclass, '')
+                end
+
+            end
+
+        end
+
+        ---@param unit Unit
+        function LotAtcConnector:markUnitAlive(unit)
+
+            if self.LotAtcConfiguration.Enabled == false then
+                return
+            end
+
+            if not lotatcLink then 
+                Log.info("Skipping LotATC, no link enabled on the server")
+                return
+            end
+
+            do -- own side
+
+                local config = self.LotAtcConfiguration.SelfCoalition
+
+                local unitName = unit:getName()
+                local controllerCoalition = "blue"
+                if unit:getCoalition() == coalition.side.RED then
+                    controllerCoalition = "red"
+                end
+
+                ---@type LotAtcClassification
+                local aliveClassification = lotAtcClassification.Friend
+                if config and config.states and config.states[StateClassification.Revived] then
+                    Log.debug("Using revived classification: " .. config.states[StateClassification.Revived])
+                    aliveClassification = config.states[StateClassification.Revived]
+                end
+
+                if unitName and controllerCoalition and aliveClassification then
+                    -- the two empty string at the end are to keep it unchanged
+                    Log.info("Setting LotATC: " .. controllerCoalition .. " " .. unitName .. " " .. aliveClassification)
+                    lotatcLink.setClassification(controllerCoalition, unitName, aliveClassification, "air", '')
+                end
+            end
+
+            do -- other side
+
+                local config = self.LotAtcConfiguration.OtherCoalition
+
+                local unitName = unit:getName()
+                local controllerCoalition = "red"
+                if unit:getCoalition() == coalition.side.RED then
+                    controllerCoalition = "blue"
+                end
+
+                ---@type LotAtcClassification
+                local aliveClassification = lotAtcClassification.Suspect
+                if config and config.states and config.states[StateClassification.Revived] then
+                    Log.debug("Using revived classification: " .. config.states[StateClassification.Revived])
+                    aliveClassification = config.states[StateClassification.Revived]
+                end
+
+                if unitName and controllerCoalition and aliveClassification then
+                    -- the two empty string at the end are to keep it unchanged
+                    Log.info("Setting LotATC: " .. controllerCoalition .. " " .. unitName .. " " .. aliveClassification)
+                    lotatcLink.setClassification(controllerCoalition, unitName, aliveClassification, "air", '')
+                end
+            end
+
+        end
+
+        ---@param coalitionSide CoalitionSide
+        ---@param message string
+        function LotAtcConnector:sendMessage(coalitionSide, message)
+
+            if not lotatcLink then return end
+
+            local coalitionName = nil
+            if coalitionSide == coalition.side.RED then
+                coalitionName = "red"
+            elseif coalitionSide == coalition.side.BLUE then
+                coalitionName = "blue"
+            end
+
+            if coalitionName ~= nil then
+                lotatcLink.sendToControllers(coalitionName, message)
+            end
+        end
+    end
+end
+
+
+
+
 Log.info("Initiating ...")
 
 ---@class UnitManager
@@ -820,10 +1190,9 @@ Log.info("Initiating ...")
 ---@field private missile_hits table<string, integer>
 ---@field private _notifier Notifier
 ---@field private invincibilityManager InvincibilityManager
+---@field private lotAtcConnector LotAtcConnector
 local UnitManager = {}
 do --- UnitManager
-    
-
     ---comment
     ---@param invincibilityManager InvincibilityManager
     ---@param notifier Notifier
@@ -832,6 +1201,17 @@ do --- UnitManager
         UnitManager.__index = UnitManager
         local self = setmetatable({}, UnitManager)
 
+        local lotAtcConfig = RedFlag.getConfigPart("LotAtcConfiguration")
+        if lotAtcConfig == nil then
+            lotAtcConfig = {
+                Enabled = false
+            }
+
+            Log.warn("LotATC configuration flawed and will be disabled.")
+        end
+
+        self.lotAtcConnector = LotAtcConnector.New(lotAtcConfig --[[@as LotAtcConfiguration]])
+
         self.dead_players = {}
         self.dead_units = {}
         self.crashed_units = {}
@@ -839,7 +1219,7 @@ do --- UnitManager
         self.missile_hits = {}
         self.invincibilityManager = invincibilityManager
         self._notifier = notifier
-        
+
         return self
     end
 
@@ -869,7 +1249,6 @@ do --- UnitManager
     ---@param shooter Unit
     ---@param target Unit
     function UnitManager:registerGunKill(shooter, target)
-
         if self:isUnitAlive(shooter:getName()) == false then
             return --if hit by a bullet from a dead unit the hit does not count
         end
@@ -896,18 +1275,17 @@ do --- UnitManager
     ---@param weapon Weapon
     function UnitManager:registerHit(target, shooter, weapon)
         if Object.getCategory(weapon) == Object.Category.WEAPON then
-
             if weapon:getDesc().category == Weapon.Category.SHELL then
                 if self:isUnitAlive(shooter:getName()) == false then
                     return --if hit by a bullet from a dead unit the hit does not count
                 end
-    
+
                 if not self.bullet_hits[target:getName()] then
                     self.bullet_hits[target:getName()] = 0
                 end
-    
+
                 self.bullet_hits[target:getName()] = self.bullet_hits[target:getName()] + 1
-    
+
                 if self.bullet_hits[target:getName()] >= Config.KillParameters.Bullets then
                     self:markUnitDead(target)
                     self._notifier:NotifyGunKillDelayed(shooter, Config.Delays.GunKillDelay)
@@ -916,9 +1294,9 @@ do --- UnitManager
                 if not self.missile_hits[target:getName()] then
                     self.missile_hits[target:getName()] = 0
                 end
-    
+
                 self.missile_hits[target:getName()] = self.missile_hits[target:getName()] + 1
-    
+
                 if self.missile_hits[target:getName()] >= Config.KillParameters.Missiles then
                     self._notifier:NotifyKillDelayed(shooter, Config.Delays.MissileKillDelay)
                     self:markUnitDead(target)
@@ -939,7 +1317,6 @@ do --- UnitManager
 
             self.invincibilityManager:setMortal(weapon)
             trigger.action.explosion(weapon:getPoint(), 5)
-
         end
     end
 
@@ -958,6 +1335,14 @@ do --- UnitManager
 
         self:setInvisible(unit, false)
 
+        local success, err = pcall(function ()
+            self.lotAtcConnector:markUnitAlive(unit)
+        end)
+
+        if not success then
+            Log.error("LotAtc error: " .. tostring(err))
+        end
+
         if notify == true then
             self._notifier:NotifyRevived(unit)
         end
@@ -968,6 +1353,14 @@ do --- UnitManager
     function UnitManager:markUnitDead(unit)
         Log.info("Marking " .. unit:getName() .. " as dead")
         self._notifier:NotifyKilled(unit)
+
+        local success, err = pcall(function ()
+            self.lotAtcConnector:markUnitDead(unit)
+        end)
+
+        if not success then
+            Log.error("LotAtc error: " .. tostring(err))
+        end
 
         self:setInvisible(unit, true)
 
@@ -1016,16 +1409,14 @@ do --- UnitManager
             end
         end
     end
-
 end
 
 ---@class RespawnManager
 ---@field private _config RespawnManagerConfig
----@field private _triggerZones Array<TriggerZone>
+---@field private _triggerZones Array<RedFlagTriggerZone>
 ---@field private _unitManager UnitManager
 local RespawnManager = {}
 do
-
     ---@class RespawnManagerConfig
     ---@field inReviveZone boolean
     ---@field onTankerConnect boolean
@@ -1045,7 +1436,6 @@ do
         ---@param triggerZoneObject table
         ---@returns TriggerZone
         function TriggerZone.New(triggerZoneObject)
-
             TriggerZone.__index = TriggerZone
             local self = setmetatable({}, TriggerZone)
 
@@ -1054,7 +1444,7 @@ do
 
             self.position = { x = triggerZoneObject["x"], z = triggerZoneObject["y"], y = 0 }
             self.type = triggerZoneObject["type"]
-            self.radius =  triggerZoneObject["radius"]
+            self.radius = triggerZoneObject["radius"]
 
             if self.type == 2 then
                 -- load verticies
@@ -1062,10 +1452,10 @@ do
                 local verts = triggerZoneObject["verticies"]
                 if verts and #verts > 0 then
                     self.verticies = {}
-                    self.verticies[1] = { x = verts[4].x, y = 0, z = verts[4].z }
-                    self.verticies[2] = { x = verts[3].x, y = 0, z = verts[3].z }
-                    self.verticies[3] = { x = verts[2].x, y = 0, z = verts[2].z }
-                    self.verticies[4] = { x = verts[1].x, y = 0, z = verts[1].z }
+                    table.insert(self.verticies, { x = verts[4].x, y = 0, z = verts[4].y })
+                    table.insert(self.verticies, { x = verts[3].x, y = 0, z = verts[3].y })
+                    table.insert(self.verticies, { x = verts[2].x, y = 0, z = verts[2].y })
+                    table.insert(self.verticies, { x = verts[1].x, y = 0, z = verts[1].y })
                 end
             end
             return self
@@ -1074,7 +1464,6 @@ do
         ---@param pos Vec3
         ---@returns boolean
         function TriggerZone:isInZone(pos)
-
             if self.type == 2 then
                 return self:isInPolygon(pos)
             end
@@ -1086,12 +1475,14 @@ do
         ---@param point Vec3
         ---@returns boolean
         function TriggerZone:isInPolygon(point)
-
             ---@param polygon Array<Vec3>
             ---@param x number
             ---@param z number
             ---@return boolean
             local function isInComplexPolygon(polygon, x, z)
+
+                ---@param poly Array<Vec3>
+                ---@return Array<{x1: number, z1: number, x2: number, z2: number}>  
                 local function getEdges(poly)
                     local result = {}
                     for i = 1, #poly do
@@ -1104,7 +1495,7 @@ do
                     end
                     return result
                 end
-    
+
                 local edges = getEdges(polygon)
                 local count = 0;
                 for _, edge in pairs(edges) do
@@ -1131,7 +1522,7 @@ do
     end
 
     ---@param self RespawnManager
-    local checkZonesTask = function (self, time)
+    local checkZonesTask = function(self, time)
         self:CheckUnits()
         return time + 5
     end
@@ -1193,7 +1584,6 @@ do
     ---@param unit table
     ---@param base table
     function RespawnManager:OnUnitLanded(unit, base)
-
         if base == nil then return end
         if unit == nil then return end
 
@@ -1211,17 +1601,15 @@ end
 ---@field private _notifier Notifier
 local InvincibilityManager = {}
 do -- InvincibilityManager
-
     ---comment
     ---@param self InvincibilityManager
     ---@param time any
     local checkInvinsibilityTask = function(self, time)
-
         local checkGroups = function(groups)
             for _, group in ipairs(groups) do
                 if group and group:isExist() then
                     for _, unit in ipairs(group:getUnits()) do
-                            if unit then
+                        if unit then
                             self:CheckUnit(unit)
                         end
                     end
@@ -1266,7 +1654,7 @@ do -- InvincibilityManager
             timer.scheduleFunction(checkInvinsibilityTask, self, timer.getTime() + 5)
         end
         return self
-    end 
+    end
 
     function InvincibilityManager:resetUnit(unit)
         self._forcedUnits[unit:getName()] = nil
@@ -1274,7 +1662,6 @@ do -- InvincibilityManager
     end
 
     function InvincibilityManager:resetUnitDelayed(unit, delaySeconds)
-
         ---comment
         ---@param input table
         local task = function(input, time)
@@ -1282,7 +1669,7 @@ do -- InvincibilityManager
             return nil
         end
 
-        timer.scheduleFunction(task, {self = self, unit = unit }, timer.getTime() + 5)
+        timer.scheduleFunction(task, { self = self, unit = unit }, timer.getTime() + 5)
     end
 
     ---comment
@@ -1296,12 +1683,12 @@ do -- InvincibilityManager
         }
 
         if unit.getController and unit.getName and (self._forcedUnits[unit:getName()] ~= true or force == true) then
-            if isSinglePlayer == true then 
+            if isSinglePlayer == true then
                 unit:getGroup():getController():setCommand(SetImmortal)
             else
                 unit:getController():setCommand(SetImmortal)
             end
-            
+
             self._invincibleUnits[unit:getName()] = false
 
             if force == true then
@@ -1312,7 +1699,6 @@ do -- InvincibilityManager
         end
     end
 
-    
     function InvincibilityManager:setImmortal(unit, force)
         SetImmortal = {
             id = 'SetImmortal',
@@ -1322,14 +1708,14 @@ do -- InvincibilityManager
         }
 
         if unit.getController and unit.getName and (self._forcedUnits[unit:getName()] ~= true or force == true) then
-            if isSinglePlayer == true then 
+            if isSinglePlayer == true then
                 unit:getGroup():getController():setCommand(SetImmortal)
             else
                 unit:getController():setCommand(SetImmortal)
             end
-            
+
             self._invincibleUnits[unit:getName()] = true
-            
+
             if force == true then
                 self._forcedUnits[unit:getName()] = true
             end
@@ -1381,7 +1767,6 @@ end
 ---@field private _fpms table<string, table<integer,fpmData>>
 local CrashManager = {}
 do
-
     ---@class fpmData
     ---@field time number
     ---@field MperS number
@@ -1399,7 +1784,6 @@ do
     ---@param invincibilityManager InvincibilityManager
     ---@return CrashManager
     function CrashManager.New(invincibilityManager)
-
         CrashManager.__index = CrashManager
         local self = setmetatable({}, CrashManager)
 
@@ -1412,15 +1796,14 @@ do
     end
 
     function CrashManager:UpdateVectors()
-
         local updategroups = function(groups)
-            for _ , group in pairs(groups) do
+            for _, group in pairs(groups) do
                 for _, unit in pairs(group:getUnits()) do
                     local vec = unit:getVelocity()
-                    
+
                     local name = unit:getName()
                     if not self._fpms[name] then self._fpms[name] = {} end
-                    
+
                     local count = #self._fpms[name]
 
                     if count == 0 then
@@ -1438,7 +1821,6 @@ do
                             MperS = vec.y
                         }
                     end
-
                 end
             end
         end
@@ -1451,7 +1833,6 @@ do
             local helos = coalition.getGroups(i, 1)
             updategroups(helos)
         end
-
     end
 
     function CrashManager:OnGroundTouch(unit, location)
@@ -1471,31 +1852,28 @@ do
 
                 local last = fpmData[#fpmData]
                 if timer.getTime() - last.time < 0.3 then
-                    last = fpmData[#fpmData-1]
+                    last = fpmData[#fpmData - 1]
                 end
 
                 if last.MperS < -15 then --- 15m/s is about 3000fpm
                     trigger.action.explosion(unit:getPoint(), 1000)
                 end
-            else 
+            else
                 -- when "crashing"
                 Log.debugOutText("checking crash with gear up", 10)
 
                 local last = fpmData[#fpmData]
                 if timer.getTime() - last.time < 0.3 then
-                    last = fpmData[#fpmData-1]
+                    last = fpmData[#fpmData - 1]
                 end
 
                 Log.debugOutText("last fpms: " .. last.MperS, 10)
                 if last.MperS < -8 then --- 8m/s is about 1500fpm
                     trigger.action.explosion(unit:getPoint(), 1000)
                 end
-    
             end
-
         end
     end
-
 end
 
 
@@ -1508,7 +1886,6 @@ end
 ---@field private _config WeaponManagementConfig
 local WeaponManager = {}
 do
-
     ---@class WeaponManagementConfig
     ---@field deadUnitAAMissileBehaviour integer
     ---@field deadUnitAGWeaponBehaviour integer
@@ -1537,33 +1914,31 @@ do
             local pos = weapon:getPoint()
             trigger.action.explosion(pos, 30)
         end
-        
+
         return nil
     end
 
     do -- Guns
-
         local activeShooters = {}
-        
+
         ---@type table<string, boolean>
         local gunKill = {}
 
         ---@type table<string, number>
         local gunHits = {}
-        
+
         ---@class GunTrackingData
         ---@field shooter Unit
         ---@field target Unit
         ---@field unitManager UnitManager
         ---@field checkIndex integer
         ---@field lastVelocity Vec3
-        ---@field lastTime number 
+        ---@field lastTime number
 
         ---comment
         ---@param data GunTrackingData
         ---@param time number
         local function TrackPossibleHitsTask(data, time)
-
             local shooter = data.shooter
             local target = data.target
 
@@ -1587,7 +1962,6 @@ do
             local targetV = target:getVelocity()
 
             if Config and Config.KillParameters and Config.KillParameters.GunKillOnlyRearAspect == true then
-                    
                 local aspect = Helpers.vecAlignment(shooterV, targetV)
 
                 if aspect < 0.1 then
@@ -1603,9 +1977,8 @@ do
 
             ---@param unit Unit
             local getBulletVelocity = function(unit)
-
                 local unitType = unit:getTypeName()
-                
+
                 local gunData = {}
                 gunData["MiG-29A"] = 900
 
@@ -1624,7 +1997,7 @@ do
 
             local bulletV = Helpers.vecSetMagnitude(shooterV, magnitude + bulletVelocity)
             local targetPos = target:getPoint()
-            
+
             local currentTime = timer.getTime()
 
             local multiplier = 1 / (currentTime - data.lastTime)
@@ -1658,7 +2031,6 @@ do
         ---comment
         ---@param shooter Unit
         function WeaponManager:StartTrackingGun(shooter)
-
             if self._unitManager:isUnitAlive(shooter:getName()) == false then
                 self._notifier:DenyShot(shooter)
                 return
@@ -1721,7 +2093,6 @@ do
         function WeaponManager:StopTrackingGun(shooter)
             activeShooters[shooter:getName()] = false
         end
-    
     end
 
 
@@ -1732,26 +2103,22 @@ do
     end
 
     function WeaponManager:weaponFired(shooter, weapon)
-
         local isShooterDead = self._unitManager:isUnitAlive(shooter:getName()) == false
 
         if weapon and weapon:getDesc().category == Weapon.Category.MISSILE
-        and weapon:getDesc().missileCategory == Weapon.MissileCategory.AAM then
-            
+            and weapon:getDesc().missileCategory == Weapon.MissileCategory.AAM then
             -- AA Missiles
             if isShooterDead == false or self._config.deadUnitAAMissileBehaviour == 1 then
                 self._notifier:CopyShotDelayed(shooter, 2)
                 local target = weapon:getTarget() -- can be nil
                 self:startTrackingMissile(shooter, target, weapon)
             elseif isShooterDead == true then
-                
                 self.ExplodeWeapon(weapon)
                 self._deletedWeapons[weapon:getName()] = weapon
 
                 self._notifier:DenyShot(shooter)
             end
         else
-
             -- AG WEAPONS
             if Helpers.isPlayer(shooter:getID(), shooter:getCoalition()) == true then
                 if isShooterDead == true then
@@ -1766,7 +2133,6 @@ do
                     end
                 end
             end
-
         end
     end
 
@@ -1784,14 +2150,13 @@ do
     ---@param missile Weapon
     ---@param target Unit
     local getClosingSpeed = function(missile, target)
-        
-        local relative =  Helpers.vecSub(missile:getVelocity(), target:getVelocity())
+        local relative = Helpers.vecSub(missile:getVelocity(), target:getVelocity())
         local missileAlign = Helpers.vecAlignment(relative, missile:getVelocity())
 
         if missileAlign > 0 then
             return Util.vectorMagnitude(relative)
         end
-        
+
         return 0 - Util.vectorMagnitude(relative)
     end
 
@@ -1799,7 +2164,6 @@ do
     ---@param time unknown
     ---@return number?
     function WeaponManager:trackMissile(data, time)
-
         data.checkIncrement = data.checkIncrement + 1
         local missile = data.missile
 
@@ -1810,7 +2174,7 @@ do
 
         local target = missile:getTarget()
 
-        -- if after 20 seconds a missile does not have a target it's not likely to hit anything. 
+        -- if after 20 seconds a missile does not have a target it's not likely to hit anything.
         -- not likely enough for a red flag scenario anyway
         if target == nil and timer.getTime() - data.lastValidTargetTime > 10 then
             self._notifier:NotifyMissed(data.shooter)
@@ -1871,10 +2235,9 @@ do
             return data.self:trackMissile(passedData, time)
         end
 
-        self._closingSpeeds[Object.getName(missile)] = {} 
+        self._closingSpeeds[Object.getName(missile)] = {}
         timer.scheduleFunction(missileTask, data, timer.getTime() + 0.3)
     end
-    
 
     ---@class AgMunitionData
     ---@field self WeaponManager
@@ -1883,7 +2246,6 @@ do
 
     ---@param data AgMunitionData
     function WeaponManager:trackAgMunitionForDeletion(data, time)
-
         if not data or not data.weapon then return nil end
         local weapon = data.weapon
 
@@ -1902,13 +2264,16 @@ do
         local deletableByDistance = false
         if weapon.getTarget and weapon:getTarget() ~= nil then
             local target = weapon:getTarget()
-            
+
             if Util.distance(weapon:getPoint(), target:getPoint()) < 100 then
                 deletableByDistance = true
             end
         end
 
-        Log.debugOutTextForUnit(data.shooter:getID(), "agl: " .. pos.y - ground .. " || speed: " .. MpS .. " || nextInterval: " .. nextInterval .. " || " .. tostring(deletableByDistance) , 3)
+        Log.debugOutTextForUnit(data.shooter:getID(),
+            "agl: " ..
+            pos.y - ground ..
+            " || speed: " .. MpS .. " || nextInterval: " .. nextInterval .. " || " .. tostring(deletableByDistance), 3)
 
         if nextInterval < 0.5 or deletableByDistance == true then
             weapon:destroy()
@@ -1926,7 +2291,6 @@ do
     ---@param shooter table
     ---@param weapon table
     function WeaponManager:startTrackingAgMunitionForDeletion(shooter, weapon)
-
         ---@type AgMunitionData
         local data = {
             self = self,
@@ -1950,7 +2314,6 @@ end
 ---@field private _respawnManager RespawnManager
 local EventHandler = {}
 do -- Event Handler
-
     ---comment
     ---@param unitManger UnitManager
     ---@param notifier Notifier
@@ -1969,12 +2332,14 @@ do -- Event Handler
         return self
     end
 
+    ---comment
+    ---@param e table
     function EventHandler:onEvent(e)
         local id = e.id
 
         if id == nil or id == 0 then
             return
-        end 
+        end
 
         Log.debug("Receiving event: " .. tostring(id))
 
@@ -1982,13 +2347,12 @@ do -- Event Handler
             local shooter = e.initiator
             if self._unitManager:isUnitAlive(shooter:getName()) == false then
                 self._notifier:DenyShot(shooter)
-            else 
+            else
                 self._weaponsManager:StartTrackingGun(shooter)
             end
         elseif id == world.event.S_EVENT_SHOOTING_END then
             local shooter = e.initiator
             self._weaponsManager:StopTrackingGun(shooter)
-
         elseif id == world.event.S_EVENT_SHOT then
             local shooter = e.initiator
             local weapon = e.weapon

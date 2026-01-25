@@ -10,7 +10,8 @@
         "Weapon",
         "trigger",
         "Object",
-        "land"
+        "land",
+        "lotatcLink"
     ],
     "todo-tree.tree.scanMode": "current file"
 }
