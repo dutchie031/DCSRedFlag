@@ -315,12 +315,6 @@ do ---Config Class Definitions
 
 end
 
-
-local isSinglePlayer = false
-if net.get_my_player_id() == 0 then
-    isSinglePlayer = true
-end
-
 local Util = {}
 do
     function Util.split_string(input, separator)
@@ -381,7 +375,7 @@ do
     end
 
     Log.warn = function(string)
-        env.warn("[TDCS Red Flag] " .. (string or "nil"))
+        env.warning("[TDCS Red Flag] " .. (string or "nil"))
     end
 
     Log.error = function(string)
@@ -406,6 +400,21 @@ do
             trigger.action.outTextForUnit(unitId, string, time)
         end
     end
+end
+
+
+local isSinglePlayer = false
+if net.get_my_player_id() == 0 then
+    local warnSinglePlayerTask = function(nothing, time)
+        trigger.action.outText("TDCS Red Flag is running in Single Player mode. Some features may not work as expected. This is only for debug purposes", 3)
+        return time + 5
+    end
+    Log.warn("TDCS Red Flag is running in Single Player mode. Some features may not work as expected. This is only for debug purposes")
+    timer.scheduleFunction(warnSinglePlayerTask, nil, timer.getTime() + 1)
+
+    isSinglePlayer = true
+else
+    Log.info("TDCS Red Flag is running in Dedicated Server mode.")
 end
 
 local Helpers = {}
@@ -781,6 +790,7 @@ end
 
 ---@class Notifier
 ---@field private config NotificationConfig
+---@field private lotAtcConnector LotAtcConnector
 local Notifier = {}
 do
     ---@class NotificationConfig
@@ -788,12 +798,14 @@ do
 
     ---comment
     ---@param config NotificationConfig
+    ---@param lotAtcConnector LotAtcConnector
     ---@return Notifier
-    function Notifier.New(config)
+    function Notifier.New(config, lotAtcConnector)
         Notifier.__index = Notifier
         local self = setmetatable({}, Notifier)
         self.config = config
-
+        self.lotAtcConnector = lotAtcConnector
+        
         return self
     end
 
@@ -822,7 +834,7 @@ do
 
         if Config.Messages.ControllerMessages.MissileMissed ~= nil then
             local message = self:Format(Config.Messages.ControllerMessages.MissileMissed, "callsign", friendlyName)
-            net.send_chat(message, true)
+            self.lotAtcConnector:sendMessage(shooter:getCoalition(), message)
         end
 
         if Config.Messages.PlayerMessages.MissileMissed ~= nil then
@@ -842,7 +854,7 @@ do
         timer.scheduleFunction(notify, { notifier = self, shooter = shooter }, timer.getTime() + delaySeconds)
     end
 
-    ---@param target table
+    ---@param target Unit
     function Notifier:NotifyKilled(target)
         local name = target:getName()
         if target.getPlayerName then
@@ -852,7 +864,7 @@ do
 
         if Config.Messages.ControllerMessages.UnitKilled ~= nil then
             local controllerMessage = self:Format(Config.Messages.ControllerMessages.UnitKilled, "callsign", friendlyName)
-            net.send_chat(controllerMessage, true)
+            self.lotAtcConnector:sendMessage(target:getCoalition(), controllerMessage)
         end
 
         if target.getID and Config.Messages.PlayerMessages.UnitKilled ~= nil then
@@ -861,14 +873,14 @@ do
         end
     end
 
-    ---@param shooter table
+    ---@param shooter Unit
     function Notifier:NotifyKill(shooter)
         local name = shooter:getPlayerName() or shooter:getCallsign()
         local friendlyName = self:NameToCallSign(name)
 
         if Config.Messages.ControllerMessages.ConfirmKill ~= nil then
             local message = self:Format(Config.Messages.ControllerMessages.ConfirmKill, "callsign", friendlyName)
-            net.send_chat(message, true)
+            self.lotAtcConnector:sendMessage(shooter:getCoalition(), message)
         end
 
         if Config.Messages.PlayerMessages.ConfirmKill ~= nil then
@@ -877,7 +889,7 @@ do
         end
     end
 
-    ---@param shooter table
+    ---@param shooter Unit
     ---@param delaySeconds number
     function Notifier:NotifyKillDelayed(shooter, delaySeconds)
         if delaySeconds <= 1 then
@@ -892,14 +904,14 @@ do
         end
     end
 
-    ---@param shooter table
+    ---@param shooter Unit
     function Notifier:NotifyGunKill(shooter)
         local name = shooter:getPlayerName() or shooter:getCallsign()
         local friendlyName = self:NameToCallSign(name)
 
         if Config.Messages.ControllerMessages.ConfirmKill ~= nil then
             local message = self:Format(Config.Messages.ControllerMessages.ConfirmKillGunKill, "callsign", friendlyName)
-            net.send_chat(message, true)
+            self.lotAtcConnector:sendMessage(shooter:getCoalition(), message)
         end
 
         if Config.Messages.PlayerMessages.ConfirmKill ~= nil then
@@ -1023,6 +1035,15 @@ do
             return self
         end
 
+        function LotAtcConnector.WarnIfNoLotATC()
+            if not lotatcLink then
+                Log.warn("LotATC link not enabled on the server")
+                return
+            end
+
+            Log.info("LotAtcLink present")
+        end
+
         ---@param unit Unit
         function LotAtcConnector:markUnitDead(unit)
 
@@ -1056,7 +1077,7 @@ do
                     -- the two empty string at the end are to keep it unchanged
 
                     Log.info("Setting LotATC: " .. controllerCoalition .. " " .. unitName .. " " .. deadClassification)
-                    lotatcLink.setClassification(controllerCoalition, unitName, deadClassification, "air", '')
+                    lotatcLink.setClassification(controllerCoalition, unitName, deadClassification, "air", '', true)
                 end
             end
 
@@ -1088,7 +1109,7 @@ do
 
                     -- the two empty string at the end are to keep it unchanged
                     Log.info("Setting LotATC: " .. controllerCoalition .. " " .. unitName .. " " .. class)
-                    lotatcLink.setClassification(controllerCoalition, unitName, class, subclass, '')
+                    lotatcLink.setClassification(controllerCoalition, unitName, class, subclass, '', true)
                 end
 
             end
@@ -1127,7 +1148,7 @@ do
                 if unitName and controllerCoalition and aliveClassification then
                     -- the two empty string at the end are to keep it unchanged
                     Log.info("Setting LotATC: " .. controllerCoalition .. " " .. unitName .. " " .. aliveClassification)
-                    lotatcLink.setClassification(controllerCoalition, unitName, aliveClassification, "air", '')
+                    lotatcLink.setClassification(controllerCoalition, unitName, aliveClassification, "air", '', false)
                 end
             end
 
@@ -1151,7 +1172,7 @@ do
                 if unitName and controllerCoalition and aliveClassification then
                     -- the two empty string at the end are to keep it unchanged
                     Log.info("Setting LotATC: " .. controllerCoalition .. " " .. unitName .. " " .. aliveClassification)
-                    lotatcLink.setClassification(controllerCoalition, unitName, aliveClassification, "air", '')
+                    lotatcLink.setClassification(controllerCoalition, unitName, aliveClassification, "air", '', false)
                 end
             end
 
@@ -1196,22 +1217,12 @@ do --- UnitManager
     ---comment
     ---@param invincibilityManager InvincibilityManager
     ---@param notifier Notifier
+    ---@param lotAtcConnector LotAtcConnector
     ---@return UnitManager
-    function UnitManager.New(invincibilityManager, notifier)
+    function UnitManager.New(invincibilityManager, notifier, lotAtcConnector)
         UnitManager.__index = UnitManager
         local self = setmetatable({}, UnitManager)
-
-        local lotAtcConfig = RedFlag.getConfigPart("LotAtcConfiguration")
-        if lotAtcConfig == nil then
-            lotAtcConfig = {
-                Enabled = false
-            }
-
-            Log.warn("LotATC configuration flawed and will be disabled.")
-        end
-
-        self.lotAtcConnector = LotAtcConnector.New(lotAtcConfig --[[@as LotAtcConfiguration]])
-
+        self.lotAtcConnector = lotAtcConnector
         self.dead_players = {}
         self.dead_units = {}
         self.crashed_units = {}
@@ -1349,7 +1360,7 @@ do --- UnitManager
     end
 
     ---comment
-    ---@param unit table
+    ---@param unit Unit
     function UnitManager:markUnitDead(unit)
         Log.info("Marking " .. unit:getName() .. " as dead")
         self._notifier:NotifyKilled(unit)
@@ -1605,11 +1616,12 @@ do -- InvincibilityManager
     ---@param self InvincibilityManager
     ---@param time any
     local checkInvinsibilityTask = function(self, time)
+        ---@param groups Array<Group>
         local checkGroups = function(groups)
             for _, group in ipairs(groups) do
                 if group and group:isExist() then
                     for _, unit in ipairs(group:getUnits()) do
-                        if unit then
+                        if unit and unit:isExist() then
                             self:CheckUnit(unit)
                         end
                     end
@@ -1675,7 +1687,7 @@ do -- InvincibilityManager
     ---comment
     ---@param unit table
     function InvincibilityManager:setMortal(unit, force)
-        SetImmortal = {
+        local SetImmortal = {
             id = 'SetImmortal',
             params = {
                 value = false
@@ -1683,7 +1695,9 @@ do -- InvincibilityManager
         }
 
         if unit.getController and unit.getName and (self._forcedUnits[unit:getName()] ~= true or force == true) then
+            Log.debug("Setting mortal for unit: " .. unit:getName())
             if isSinglePlayer == true then
+                Log.debug("SetImmortal: Single player mode detected")
                 unit:getGroup():getController():setCommand(SetImmortal)
             else
                 unit:getController():setCommand(SetImmortal)
@@ -1700,7 +1714,7 @@ do -- InvincibilityManager
     end
 
     function InvincibilityManager:setImmortal(unit, force)
-        SetImmortal = {
+        local SetImmortal = {
             id = 'SetImmortal',
             params = {
                 value = true
@@ -1708,7 +1722,9 @@ do -- InvincibilityManager
         }
 
         if unit.getController and unit.getName and (self._forcedUnits[unit:getName()] ~= true or force == true) then
+            Log.debug("Setting immortal for unit: " .. unit:getName())
             if isSinglePlayer == true then
+                Log.debug("SetImmortal: Single player mode detected")
                 unit:getGroup():getController():setCommand(SetImmortal)
             else
                 unit:getController():setCommand(SetImmortal)
@@ -1724,6 +1740,8 @@ do -- InvincibilityManager
         end
     end
 
+    ---comment
+    ---@param unit Unit
     function InvincibilityManager:CheckUnit(unit)
         if self._forcedUnits[unit:getName()] == true then
             return
@@ -2404,11 +2422,22 @@ do -- init config
     end
 end
 
+ local lotAtcConfig = RedFlag.getConfigPart("LotAtcConfiguration")
+if lotAtcConfig == nil then
+    lotAtcConfig = {
+        Enabled = false
+    }
+
+    Log.warn("LotATC configuration flawed and will be disabled.")
+end
+
+local lotAtcConnector = LotAtcConnector.New(lotAtcConfig)
+
 ---@type NotificationConfig
 local notificationConfig = {
     CallsignDelimiter = Config.CallSignDelimiter or "|"
 }
-local notifier = Notifier.New(notificationConfig)
+local notifier = Notifier.New(notificationConfig, lotAtcConnector)
 
 ---@type InvincibleConfig
 local invincibilityConfig = {
@@ -2423,7 +2452,7 @@ local weaponManagerConfig = {
 }
 
 local invisibilityManager = InvincibilityManager.New(invincibilityConfig, notifier)
-local unitManager = UnitManager.New(invisibilityManager, notifier)
+local unitManager = UnitManager.New(invisibilityManager, notifier, lotAtcConnector)
 local weaponsManager = WeaponManager.New(notifier, unitManager, weaponManagerConfig)
 
 local crashManager = CrashManager.New(invisibilityManager)
@@ -2442,3 +2471,5 @@ world.addEventHandler(eventHandler)
 
 Log.info("Version: " .. version)
 Log.info("Started")
+
+LotAtcConnector.WarnIfNoLotATC()
