@@ -234,13 +234,13 @@ do ---Config Class Definitions
                 Enabled = true,
                 SelfCoalition = {
                     states = {
-                        ["dead"] = "neutral",
+                        ["dead"] = "air_civil",
                         ["revived"] = "friend"
                     }
                 },
                 OtherCoalition = {
                     states = {
-                        ["dead"] = "neutral_unknown",
+                        ["dead"] = "neutral",
                         ["revived"] = "hostile"
                     }
                 }
@@ -1011,7 +1011,7 @@ do
         Hostile       = "hostile",
         Suspect       = "suspect",
         Neutral       = "neutral",
-        NeutralUnknown = "neutral_unknown"
+        CivilAir       = "air_civil",
     }
 
     ---@class CoalitionClassification
@@ -1067,7 +1067,7 @@ do
                 end
 
                 ---@type LotAtcClassification
-                local deadClassification = lotAtcClassification.Neutral
+                local deadClassification = lotAtcClassification.CivilAir
                 if config and config.states and config.states[StateClassification.Dead] then
                     Log.debug("Using dead classification: " .. config.states[StateClassification.Dead])
                     deadClassification = config.states[StateClassification.Dead]
@@ -1075,9 +1075,13 @@ do
 
                 if unitName and controllerCoalition and deadClassification then
                     -- the two empty string at the end are to keep it unchanged
-
                     Log.info("Setting LotATC: " .. controllerCoalition .. " " .. unitName .. " " .. deadClassification)
-                    lotatcLink.setClassification(controllerCoalition, unitName, deadClassification, "air", '', true)
+                    local dimension = "air"
+                    if deadClassification == lotAtcClassification.CivilAir then
+                        deadClassification = "friend"
+                        dimension = "air_civil"
+                    end
+                    lotatcLink.setClassification(controllerCoalition, unitName, deadClassification, dimension, '', true)
                 end
             end
 
@@ -1092,7 +1096,7 @@ do
                 end
 
                 ---@type LotAtcClassification
-                local deadClassification = lotAtcClassification.NeutralUnknown
+                local deadClassification = lotAtcClassification.Neutral
                 if config and config.states and config.states[StateClassification.Dead] then
                     Log.debug("Using dead classification: " .. config.states[StateClassification.Dead])
                     deadClassification = config.states[StateClassification.Dead]
@@ -1102,12 +1106,13 @@ do
 
                     local class = deadClassification
                     local subclass = ''
-                    if deadClassification == lotAtcClassification.NeutralUnknown then
-                        class = "neutral"
-                        subclass = 'unknown'
-                    end
 
                     -- the two empty string at the end are to keep it unchanged
+                    if deadClassification == lotAtcClassification.CivilAir then
+                        class = "hostile"
+                        subclass = "air_civil"
+                    end
+
                     Log.info("Setting LotATC: " .. controllerCoalition .. " " .. unitName .. " " .. class)
                     lotatcLink.setClassification(controllerCoalition, unitName, class, subclass, '', true)
                 end
@@ -1687,30 +1692,33 @@ do -- InvincibilityManager
     ---comment
     ---@param unit table
     function InvincibilityManager:setMortal(unit, force)
-        local SetImmortal = {
-            id = 'SetImmortal',
-            params = {
-                value = false
-            }
-        }
+        return
+        -- TODO: Re-enable mortal setting once DCS bug is fixed 
+        -- Bug: https://forum.dcs.world/topic/384710-unit-controller-setting-for-immortal-for-entire-group/#comment-5745787
+        -- local SetImmortal = {
+        --     id = 'SetImmortal',
+        --     params = {
+        --         value = false
+        --     }
+        -- }
 
-        if unit.getController and unit.getName and (self._forcedUnits[unit:getName()] ~= true or force == true) then
-            Log.debug("Setting mortal for unit: " .. unit:getName())
-            if isSinglePlayer == true then
-                Log.debug("SetImmortal: Single player mode detected")
-                unit:getGroup():getController():setCommand(SetImmortal)
-            else
-                unit:getController():setCommand(SetImmortal)
-            end
+        -- if unit.getController and unit.getName and (self._forcedUnits[unit:getName()] ~= true or force == true) then
+        --     Log.debug("Setting mortal for unit: " .. unit:getName())
+        --     if isSinglePlayer == true then
+        --         Log.debug("SetImmortal: Single player mode detected")
+        --         unit:getGroup():getController():setCommand(SetImmortal)
+        --     else
+        --         unit:getController():setCommand(SetImmortal)
+        --     end
 
-            self._invincibleUnits[unit:getName()] = false
+        --     self._invincibleUnits[unit:getName()] = false
 
-            if force == true then
-                self._forcedUnits[unit:getName()] = true
-            end
+        --     if force == true then
+        --         self._forcedUnits[unit:getName()] = true
+        --     end
 
-            self._notifier:NotifyNotInvinsible(unit)
-        end
+        --     self._notifier:NotifyNotInvinsible(unit)
+        -- end
     end
 
     function InvincibilityManager:setImmortal(unit, force)
